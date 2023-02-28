@@ -46,7 +46,7 @@ extern "C" {
 #include <stdio.h>
 #include <stdarg.h>
 
-// PICO_CONFIG: PICO_PRINTF_ALWAYS_INCLUDED, Whether to always include printf code even if only called weakly (by panic), type=bool, default=1 in debug build 0 otherwise, group=pico_printf
+// PICO_CONFIG: PICO_PRINTF_ALWAYS_INCLUDED, Whether to always include printf code even if only called weakly (by panic), type=bool, default=1 in debug build, 0 otherwise, group=pico_printf
 #ifndef PICO_PRINTF_ALWAYS_INCLUDED
 #ifndef NDEBUG
 #define PICO_PRINTF_ALWAYS_INCLUDED 1

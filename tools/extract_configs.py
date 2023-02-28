@@ -29,47 +29,65 @@ scandir = sys.argv[1]
 outfile = sys.argv[2] if len(sys.argv) > 2 else 'pico_configs.tsv'
 
 CONFIG_RE = re.compile(r'//\s+PICO_CONFIG:\s+(\w+),\s+([^,]+)(?:,\s+(.*))?$')
-DEFINE_RE = re.compile(r'#define\s+(\w+)\s+(.+?)(\s*///.*)?$')
+DEFINE_RE = re.compile(r'#define\s+(\w+)\s+(.+?)(\s*(///.*|/\*.*\*/\s*))?$')
 
 all_configs = {}
 all_attrs = set()
 all_descriptions = {}
 all_defines = {}
 
+dummy_defines = (
+    'arbiter_sram5_perf_event_access', # actually an enum-value rather than a define
+    'CYW43_COUNTRY_WORLDWIDE',  # defined in cyw43-driver rather than in pico-sdk
+    'tskIDLE_PRIORITY', # defined in FreeRTOS rather than in pico-sdk
+)
+for d in dummy_defines:
+    all_defines[d] = set()
 
-
-def ValidateAttrs(config_attrs, file_path, linenum):
+def ValidateAttrs(config_name, config_attrs, file_path, linenum):
     _type = config_attrs.get('type', 'int')
 
     # Validate attrs
     if _type == 'int':
         assert 'enumvalues' not in config_attrs
         _min = _max = _default = None
-        if config_attrs.get('min', None) is not None:
+        if config_attrs.get('min') is not None:
             value = config_attrs['min']
-            m = re.match(r'^(\d+)e(\d+)$', value.lower())
+            m = re.match(r'^(\d+)e(\d+)$', value, re.IGNORECASE)
             if m:
                 _min = int(m.group(1)) * 10**int(m.group(2))
             else:
                 _min = int(value, 0)
-        if config_attrs.get('max', None) is not None:
+        if config_attrs.get('max') is not None:
             value = config_attrs['max']
-            m = re.match(r'^(\d+)e(\d+)$', value.lower())
+            m = re.match(r'^(\d+)e(\d+)$', value, re.IGNORECASE)
             if m:
                 _max = int(m.group(1)) * 10**int(m.group(2))
             else:
                 _max = int(value, 0)
-        if config_attrs.get('default', None) is not None:
-            if '/' not in config_attrs['default']:
+        if config_attrs.get('default') is not None:
+            value = config_attrs['default']
+            if '/' in value or '-' in value or '+' in value or '*' in value:
+                #print("Math?  '{}'".format(value))
+                m = re.match('^(\w+)\s*(\/|\-|\+|\*)\s*(\w+)$', value)
+                if m:
+                    #print(m.groups())
+                    arg1 = m.group(1)
+                    op = m.group(2)
+                    arg2 = m.group(3)
+                    if arg1 not in all_defines:
+                        int(arg1, 0)
+                    if arg2 not in all_defines:
+                        int(arg2, 0)
+            if '/' not in value and '-' not in value and '+' not in value and '*' not in value and value not in all_defines:
                 try:
-                    value = config_attrs['default']
-                    m = re.match(r'^(\d+)e(\d+)$', value.lower())
+                    m = re.match(r'^(\d+)e(\d+)$', value, re.IGNORECASE)
                     if m:
                         _default = int(m.group(1)) * 10**int(m.group(2))
                     else:
                         _default = int(value, 0)
                 except ValueError:
-                    pass
+                    logger.info('{} at {}:{} has non-integer default value "{}"'.format(config_name, file_path, linenum, value))
         if _min is not None and _max is not None:
             if _min > _max:
                 raise Exception('{} at {}:{} has min {} > max {}'.format(config_name, file_path, linenum, config_attrs['min'], config_attrs['max']))
@@ -85,11 +103,11 @@ def ValidateAttrs(config_attrs, file_path, linenum):
         assert 'max' not in config_attrs
         assert 'enumvalues' not in config_attrs
 
-        _default = config_attrs.get('default', None)
+        _default = config_attrs.get('default')
         if _default is not None:
             if '/' not in _default:
-                if (_default.lower() != '0') and (config_attrs['default'].lower() != '1') and ( _default not in all_configs):
-                    logger.info('{} at {}:{} has non-integer default value "{}"'.format(config_name, file_path, linenum, config_attrs['default']))
+                if _default not in ('0', '1') and _default not in all_defines:
+                    logger.info('{} at {}:{} has non-bool default value "{}"'.format(config_name, file_path, linenum, _default))
 
     elif _type == 'enum':
 
@@ -98,9 +116,7 @@ def ValidateAttrs(config_attrs, file_path, linenum):
         assert 'enumvalues' in config_attrs
 
         _enumvalues = tuple(config_attrs['enumvalues'].split('|'))
-        _default = None
-        if config_attrs.get('default', None) is not None:
-            _default = config_attrs['default']
+        _default = config_attrs.get('default')
         if _default is not None:
             if _default not in _enumvalues:
                 raise Exception('{} at {}:{} has default value {} which isn\'t in list of enumvalues {}'.format(config_name, file_path, linenum, config_attrs['default'], config_attrs['enumvalues']))
@@ -110,12 +126,12 @@ def ValidateAttrs(config_attrs, file_path, linenum):
 
 
 
-# Scan all .c and .h files in the specific path, recursively.
+# Scan all .c and .h and .S files in the specific path, recursively.
 
 for dirpath, dirnames, filenames in os.walk(scandir):
     for filename in filenames:
         file_ext = os.path.splitext(filename)[1]
-        if file_ext in ('.c', '.h'):
+        if file_ext in ('.c', '.h', '.S'):
             file_path = os.path.join(dirpath, filename)
 
             with open(file_path, encoding="ISO-8859-1") as fh:
@@ -167,15 +183,14 @@ for dirpath, dirnames, filenames in os.walk(scandir):
                         if m:
                             name = m.group(1)
                             value = m.group(2)
+                            # strip any outer brackets
+                            if value.startswith('(') and value.endswith(')'):
+                                value = value[1:-1]
                             # discard any 'u' qualifier
-                            m = re.match(r'^((0x)?\d+)u$', value.lower())
-                            if m:
-                                value = m.group(1)
-                            else:
-                                # discard any '_u(X)' macro
-                                m = re.match(r'^_u\(((0x)?\d+)\)$', value.lower())
-                                if m:
-                                    value = m.group(1)
+                            value = re.sub(r'(0x[0-9a-f]+)u', r'\1', value, flags=re.IGNORECASE)
+                            value = re.sub(r'(\d+)u', r'\1', value, flags=re.IGNORECASE)
+                            # discard any '_u(X)' macro
+                            value = re.sub(r'_u\(((0x)?[0-9a-f]+)\)', r'\1', value, flags=re.IGNORECASE)
                             if name not in all_defines:
                                 all_defines[name] = dict()
                             if value not in all_defines[name]:
@@ -196,7 +211,7 @@ for config_name, config_obj in all_configs.items():
     file_path = os.path.join(scandir, config_obj['filename'])
     linenum = config_obj['line_number']
 
-    ValidateAttrs(config_obj['attrs'], file_path, linenum)
+    ValidateAttrs(config_name, config_obj['attrs'], file_path, linenum)
 
     # Check that default values match up
     if 'default' in config_obj['attrs']:
@@ -204,14 +219,16 @@ for config_name, config_obj in all_configs.items():
         if config_name in all_defines:
             defines_obj = all_defines[config_name]
             if config_default not in defines_obj and (config_name not in resolved_defines or config_default not in resolved_defines[config_name]):
-                if '/' in config_default or ' ' in config_default:
-                    continue
-                # There _may_ be multiple matching defines, but arbitrarily display just one in the error message
-                first_define_value = list(defines_obj.keys())[0]
-                first_define_file_path, first_define_linenum = defines_obj[first_define_value]
-                raise Exception('Found {} at {}:{} with a default of {}, but #define says {} (at {}:{})'.format(config_name, file_path, linenum, config_default, first_define_value, first_define_file_path, first_define_linenum))
+                #if '/' in config_default or '-' in config_default or '+' in config_default or '*' in config_default or ' ' in config_default:
+                if not (',' in config_default or 'otherwise' in config_default):
+                    # There _may_ be multiple matching defines, but arbitrarily display just one in the error message
+                    first_define_value = list(defines_obj.keys())[0]
+                    first_define_file_path, first_define_linenum = defines_obj[first_define_value]
+                    raise Exception('Found {} at {}:{} with a default of {}, but #define says {} (at {}:{})'.format(config_name, file_path, linenum, config_default, first_define_value, first_define_file_path, first_define_linenum))
         else:
-            raise Exception('Found {} at {}:{} with a default of {}, but no matching #define found'.format(config_name, file_path, linenum, config_default))
+            # special case - treat a missing boolean config as having a default value of 0
+            if not (config_obj['attrs'].get('type') == 'bool' and config_default == '0'):
+                raise Exception('Found {} at {}:{} with a default of {}, but no matching #define found'.format(config_name, file_path, linenum, config_default))
 
 with open(outfile, 'w', newline='') as csvfile:
     fieldnames = ('name', 'location', 'description', 'type') + tuple(sorted(all_attrs - set(['type'])))

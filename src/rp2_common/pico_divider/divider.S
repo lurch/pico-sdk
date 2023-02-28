@@ -11,21 +11,21 @@
 .cpu cortex-m0plus
 .thumb
 
-// PICO_CONFIG: PICO_DIVIDER_DISABLE_INTERRUPTS, Disable interrupts around division such that divider state need not be saved/restored in exception handlers, default=0, group=pico_divider
+// PICO_CONFIG: PICO_DIVIDER_DISABLE_INTERRUPTS, Disable interrupts around division such that divider state need not be saved/restored in exception handlers, type=bool, default=0, group=pico_divider
 
 #include "pico/asm_helper.S"
 
-// PICO_CONFIG: PICO_DIVIDER_CALL_IDIV0, Whether 32 bit division by zero should call __aeabi_idiv0, default=1, group=pico_divider
+// PICO_CONFIG: PICO_DIVIDER_CALL_IDIV0, Whether 32 bit division by zero should call __aeabi_idiv0, type=bool, default=1, group=pico_divider
 #ifndef PICO_DIVIDER_CALL_IDIV0
 #define PICO_DIVIDER_CALL_IDIV0 1
 #endif
 
-// PICO_CONFIG: PICO_DIVIDER_CALL_IDIV0, Whether 64 bit division by zero should call __aeabi_ldiv0, default=1, group=pico_divider
+// PICO_CONFIG: PICO_DIVIDER_CALL_LDIV0, Whether 64 bit division by zero should call __aeabi_ldiv0, type=bool, default=1, group=pico_divider
 #ifndef PICO_DIVIDER_CALL_LDIV0
 #define PICO_DIVIDER_CALL_LDIV0 1
 #endif
 
-// PICO_CONFIG: PICO_DIVIDER_IN_RAM, Whether divider functions should be placed in RAM, default=0, group=pico_divider
+// PICO_CONFIG: PICO_DIVIDER_IN_RAM, Whether divider functions should be placed in RAM, type=bool, default=0, group=pico_divider
 .macro div_section name
 #if PICO_DIVIDER_IN_RAM
 .section RAM_SECTION_NAME(\name), "ax"

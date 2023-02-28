@@ -135,7 +135,7 @@ extern "C" {
 #define PARAM_ASSERTIONS_ENABLED_CYW43_ARCH 0
 #endif
 
-// PICO_CONFIG: PICO_CYW43_ARCH_DEBUG_ENABLED, Enable/disable some debugging output in the pico_cyw43_arch module, type=bool, default=1 in debug builds, group=pico_cyw43_arch
+// PICO_CONFIG: PICO_CYW43_ARCH_DEBUG_ENABLED, Enable/disable some debugging output in the pico_cyw43_arch module, type=bool, default=1 in debug build, 0 otherwise, group=pico_cyw43_arch
 #ifndef PICO_CYW43_ARCH_DEBUG_ENABLED
 #ifndef NDEBUG
 #define PICO_CYW43_ARCH_DEBUG_ENABLED 1
